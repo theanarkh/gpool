@@ -26,8 +26,8 @@ type taskWorker struct {
 	locker   sync.Locker
 	cond     *sync.Cond
 	tasks    *singlylinkedlist.List
-	lastTime time.Time
-	done     int64
+	lastTime atomic.Value
+	done     atomic.Int64
 	pool     *pool
 }
 
@@ -40,7 +40,6 @@ func (w *taskWorker) run() {
 			}
 			value, _ := w.tasks.Get(0)
 			w.tasks.Remove(0)
-			w.done++
 			w.locker.Unlock()
 			exited := func() (exited bool) {
 				defer func() {
@@ -55,9 +54,8 @@ func (w *taskWorker) run() {
 				task()
 				return false
 			}()
-			w.locker.Lock()
-			w.lastTime = time.Now()
-			w.locker.Unlock()
+			w.done.Add(1)
+			w.lastTime.Store(time.Now())
 			if exited {
 				w.pool.logger.Info("worker exit")
 				return
@@ -68,18 +66,19 @@ func (w *taskWorker) run() {
 
 func (w *taskWorker) statistic() *workerInfo {
 	w.locker.Lock()
-	defer w.locker.Unlock()
+	count := w.tasks.Size()
+	w.locker.Unlock()
 	return &workerInfo{
 		Id:         w.id,
-		DoneTask:   w.done,
-		UndoneTask: int64(w.tasks.Size()),
+		DoneTask:   w.done.Load(),
+		UndoneTask: int64(count),
 	}
 }
 
 func (w *taskWorker) lastExecTime() time.Time {
 	w.locker.Lock()
 	defer w.locker.Unlock()
-	return w.lastTime
+	return w.lastTime.Load().(time.Time)
 }
 
 func (w *taskWorker) submit(t Task) {
