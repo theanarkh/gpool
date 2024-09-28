@@ -21,19 +21,26 @@ type Pool interface {
 	Statistic() *StatisticInfo
 }
 
-type PanicHandler func(string)
+type PanicHandler func(any)
+
+const (
+	ENABLE_STEAL_TASK        = 1
+	ENABLE_GLOBAL_TASK_QUEUE = 2
+	ENABLE_DEBUG             = 4
+)
 
 type pool struct {
 	locker                 sync.Locker
-	cap                    int64
-	count                  int64
+	cap                    int
+	count                  int
 	maxIdleTime            time.Duration
 	pollIdleWorkerInterval time.Duration
 	logger                 Logger
-	onPanic                PanicHandler
+	panicHandler           PanicHandler
 	workers                []worker
 	once                   sync.Once
-	next                   int64
+	next                   int
+	flags                  int
 }
 
 func (p *pool) Submit(t Task) error {
@@ -92,8 +99,24 @@ func (p *pool) selectWorker() worker {
 		return worker
 	}
 	next := p.next
-	p.next = (p.next + 1) % int64(len(p.workers))
+	p.next = (p.next + 1) % (len(p.workers))
 	return p.workers[next]
+}
+
+func (p *pool) stealTasks(w *taskWorker) []Task {
+	p.locker.Lock()
+	defer p.locker.Unlock()
+
+	for _, worker := range p.workers {
+		if worker == w {
+			continue
+		}
+		tasks := worker.stealTasks()
+		if len(tasks) > 0 {
+			return tasks
+		}
+	}
+	return nil
 }
 
 func NewPool(options ...Option) (Pool, error) {
@@ -106,6 +129,9 @@ func NewPool(options ...Option) (Pool, error) {
 	}
 	for _, option := range options {
 		option(p)
+	}
+	if p.cap <= 0 {
+		return nil, errors.New("invalid capacity")
 	}
 	return p, nil
 }

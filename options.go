@@ -4,7 +4,7 @@ import "time"
 
 type Option func(*pool)
 
-func WithCapacity(capacity int64) Option {
+func WithCapacity(capacity int) Option {
 	return func(p *pool) {
 		p.cap = capacity
 	}
@@ -28,8 +28,14 @@ func WithLogger(logger Logger) Option {
 	}
 }
 
-func WithOnPanic(handler PanicHandler) Option {
+func WithPanicHandler(handler PanicHandler) Option {
 	return func(p *pool) {
-		p.onPanic = handler
+		p.panicHandler = handler
+	}
+}
+
+func WithFlags(flags int) Option {
+	return func(p *pool) {
+		p.flags = flags
 	}
 }
