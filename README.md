@@ -1,1 +1,1 @@
-# go-pool
+# gpool
